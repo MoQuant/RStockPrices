@@ -1,0 +1,135 @@
+---
+title: "Stock Price Predictor"
+output: pdf_document
+date: "2023-07-13"
+---
+
+Step 1) Load all libraries
+```{r}
+library(tidyverse)
+library(tidymodels)
+library(dplyr)
+library(neuralnet)
+library(corrplot)
+```
+
+Step 2) Load the data
+```{r}
+aapl <- read_csv('AAPL.csv')
+hd <- read_csv('HD.csv')
+jnj <- read_csv('JNJ.csv')
+spy <- read_csv('SPY.csv')
+vxx <- read_csv('VXX.csv')
+```
+
+Step 3) Manipulate the data
+```{r}
+aapl <- aapl %>%
+  select(vwap)
+hd <- hd %>%
+  select(vwap)
+jnj <- jnj %>%
+  select(vwap)
+vxx <- vxx %>%
+  select(vwap)
+spy <- spy %>%
+  select(adjClose) %>%
+  mutate(Target=adjClose) %>%
+  select(-adjClose)
+
+dataset <- data.frame(AAPL=aapl, HD=hd, JNJ=jnj, VIX=vxx, Target=spy)
+dataset <- dataset %>%
+  mutate(AAPL=vwap, HD=vwap.1, JNJ=vwap.2, VIX=vwap.3) %>%
+  select(-vwap, -vwap.1, -vwap.2, -vwap.3)
+
+
+```
+
+Step 4) Create normalization formulas
+```{r}
+norm = function(x) {
+  m0 = min(x)
+  m1 = max(x)
+  result = (x - m0)/(m1 - m0)
+  return(result)
+}
+
+unnorm = function(x, y) {
+  m0 = min(y)
+  m1 = max(y)
+  result = x*(m1 - m0) + m0
+  return(result)
+}
+```
+Step 5) Print column names
+```{r}
+colnames(dataset)
+```
+
+Step 6) Create a correlation plot between the variables
+```{r}
+corrplot(cor(dataset), method='ellipse', order='AOE', type='upper')
+```
+Step 7) Create a train test split model
+```{r}
+# Random number sampling
+set.seed(420)
+
+# Creating initial test
+spl <- initial_split(dataset, prop=0.7)
+training_data <- spl %>% training()
+testing_data <- spl %>% testing()
+
+# Normalizing training data
+train_norm <- training_data %>%
+  mutate(AAPL=norm(AAPL),
+         HD=norm(HD),
+         JNJ=norm(JNJ),
+         VIX=norm(VIX),
+         Target=norm(Target))
+
+# Normalizing testing data
+test_norm <- testing_data %>%
+  mutate(AAPL=norm(AAPL),
+         HD=norm(HD),
+         JNJ=norm(JNJ),
+         VIX=norm(VIX),
+         Target=norm(Target))
+
+```
+
+Step 8) Program the neural network
+```{r}
+modelA <- neuralnet(Target ~ ., data=train_norm, hidden=c(3, 2))
+plot(modelA)
+```
+
+Step 9) Predict values of SPY
+```{r}
+prediction <- compute(modelA, test_norm)
+prediction <- unnorm(prediction$net.result, testing_data$Target)
+y <- testing_data$Target
+```
+
+Step 10) Calculate metrics
+```{r}
+RMSE_Model <- (sum((y - prediction)^2) / length(y))^0.5
+cat("RMSE for Neural Network Model: ", RMSE_Model)
+```
+
+Step 11) Plot the variables results
+```{r}
+library(ggplot2)
+
+ggplot(mapping=aes(x=y, y=prediction)) +
+  geom_point() +
+  geom_smooth(method='lm') +
+  labs(title="Machine Learning Model", x="Actual Price", y="Predicted Price")
+
+```
+
+Step 12) Do a regression
+```{r}
+reg_model <- lm(Target ~ ., data=training_data)
+summary(reg_model)
+```
